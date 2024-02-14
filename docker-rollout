@@ -4,6 +4,8 @@ set -e
 # Defaults
 HEALTHCHECK_TIMEOUT=60
 NO_HEALTHCHECK_TIMEOUT=10
+CLEANUP_OLD_IMAGES=false
+PULL_NEW_IMAGES=false
 
 # Print metadata for Docker CLI plugin
 if [[ "$1" == "docker-cli-plugin-metadata" ]]; then
@@ -53,6 +55,9 @@ Options:
   -t, --timeout N       Healthcheck timeout (default: $HEALTHCHECK_TIMEOUT seconds)
   -w, --wait N          When no healthcheck is defined, wait for N seconds
                         before stopping old container (default: $NO_HEALTHCHECK_TIMEOUT seconds)
+  -c, --cleanup         Remove old images which are no longer used, after the rollout
+                        uses `docker image prune -a` command
+  -p, --pull            Pull new images
       --env-file FILE   Specify an alternate environment file
 
 EOF
@@ -88,6 +93,12 @@ main() {
     echo "==> Service '$SERVICE' is not running. Starting the service."
     $COMPOSE_COMMAND $COMPOSE_FILES $ENV_FILES up --detach --no-recreate "$SERVICE"
     exit 0
+  fi
+
+  if [[ "$PULL_NEW_IMAGES" == "true" ]]; then
+    echo "==> Pulling new images"
+    # shellcheck disable=SC2086 # COMPOSE_FILES and ENV_FILES must be unquoted to allow multiple files
+    $COMPOSE_COMMAND $COMPOSE_FILES $ENV_FILES pull "$SERVICE"
   fi
 
   # shellcheck disable=SC2086 # COMPOSE_FILES and ENV_FILES must be unquoted to allow multiple files
@@ -163,6 +174,12 @@ main() {
     # shellcheck disable=SC2086 # DOCKER_ARGS must be unquoted to allow multiple arguments
     docker $DOCKER_ARGS rm "$OLD_CONTAINER_ID"
   done
+
+  if [[ "$CLEANUP_OLD_IMAGES" == "true" ]]; then
+    echo "==> Cleaning up old images"
+    # shellcheck disable=SC2086 # DOCKER_ARGS must be unquoted to allow multiple arguments
+    docker $DOCKER_ARGS image prune --force
+  fi
 }
 
 while [[ $# -gt 0 ]]; do
@@ -186,6 +203,14 @@ while [[ $# -gt 0 ]]; do
   -w | --wait)
     NO_HEALTHCHECK_TIMEOUT="$2"
     shift 2
+    ;;
+  -c | --cleanup)
+    CLEANUP_OLD_IMAGES=true
+    shift 1
+    ;;
+  -p | --pull)
+    PULL_NEW_IMAGES=true
+    shift 1
     ;;
   -*)
     echo "Unknown option: $1"
